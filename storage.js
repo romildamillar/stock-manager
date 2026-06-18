@@ -1,27 +1,20 @@
 /**
  * storage.js
  * Camada de dados — CRUD no localStorage.
- * Todos os dados ficam em localStorage['sm_products'].
+ * sm_products  → lista de produtos
+ * sm_moves     → histórico de movimentações por produto
  */
 
 const Storage = (() => {
-  const KEY = 'sm_products';
+  const KEY_P = 'sm_products';
+  const KEY_M = 'sm_moves';
 
-  /** Retorna todos os produtos */
+  /* ── Produtos ──────────────────────────────────────────── */
   function getAll() {
-    try {
-      return JSON.parse(localStorage.getItem(KEY)) || [];
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(localStorage.getItem(KEY_P)) || []; } catch { return []; }
   }
+  function _save(list) { localStorage.setItem(KEY_P, JSON.stringify(list)); }
 
-  /** Salva a lista completa */
-  function _save(list) {
-    localStorage.setItem(KEY, JSON.stringify(list));
-  }
-
-  /** Cria um produto novo */
   function create(data) {
     const list = getAll();
     const product = {
@@ -40,7 +33,6 @@ const Storage = (() => {
     return product;
   }
 
-  /** Atualiza um produto pelo id */
   function update(id, data) {
     const list = getAll();
     const idx  = list.findIndex(p => p.id === id);
@@ -59,26 +51,61 @@ const Storage = (() => {
     return list[idx];
   }
 
-  /** Remove um produto pelo id */
   function remove(id) {
-    const list = getAll().filter(p => p.id !== id);
-    _save(list);
+    _save(getAll().filter(p => p.id !== id));
+    // remove movimentações do produto
+    const moves = getMoves().filter(m => m.productId !== id);
+    localStorage.setItem(KEY_M, JSON.stringify(moves));
   }
 
-  /** Retorna um produto pelo id */
-  function getById(id) {
-    return getAll().find(p => p.id === id) || null;
-  }
+  function getById(id) { return getAll().find(p => p.id === id) || null; }
 
-  /** Estatísticas rápidas */
   function getStats() {
     const list = getAll();
-    const totalValue   = list.reduce((s, p) => s + p.price * p.qty, 0);
-    const lowStock     = list.filter(p => p.qty <= p.minQty && p.qty > 0);
-    const outOfStock   = list.filter(p => p.qty === 0);
-    const categories   = [...new Set(list.map(p => p.category))];
+    const totalValue = list.reduce((s, p) => s + p.price * p.qty, 0);
+    const lowStock   = list.filter(p => p.qty <= p.minQty && p.qty > 0);
+    const outOfStock = list.filter(p => p.qty === 0);
+    const categories = [...new Set(list.map(p => p.category))];
     return { total: list.length, totalValue, lowStock, outOfStock, categories };
   }
 
-  return { getAll, create, update, remove, getById, getStats };
+  /* ── Movimentações ─────────────────────────────────────── */
+  function getMoves(productId = null) {
+    try {
+      const all = JSON.parse(localStorage.getItem(KEY_M)) || [];
+      return productId ? all.filter(m => m.productId === productId) : all;
+    } catch { return []; }
+  }
+
+  function addMove(productId, tipo, qty, nota = '') {
+    const all = getMoves();
+    all.push({
+      id:        crypto.randomUUID(),
+      productId,
+      tipo,        // 'entrada' | 'saida'
+      qty:       Number(qty),
+      nota:      nota.trim(),
+      date:      new Date().toISOString(),
+    });
+    localStorage.setItem(KEY_M, JSON.stringify(all));
+  }
+
+  /* Entrada: aumenta estoque */
+  function entrada(productId, qty, nota) {
+    const p = getById(productId);
+    if (!p) return;
+    update(productId, { ...p, qty: p.qty + Number(qty) });
+    addMove(productId, 'entrada', qty, nota);
+  }
+
+  /* Saída: diminui estoque */
+  function saida(productId, qty, nota) {
+    const p = getById(productId);
+    if (!p || Number(qty) > p.qty) return false;
+    update(productId, { ...p, qty: p.qty - Number(qty) });
+    addMove(productId, 'saida', qty, nota);
+    return true;
+  }
+
+  return { getAll, create, update, remove, getById, getStats, getMoves, entrada, saida };
 })();
